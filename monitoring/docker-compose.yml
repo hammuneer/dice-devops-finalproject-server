@@ -1,0 +1,93 @@
+# Monitoring stack for one VM:
+#   node-exporter -> host metrics (CPU, memory, swap, disk, network)
+#   cadvisor      -> per-container metrics (CPU, memory, network)
+#   prometheus    -> scrapes and stores the metrics
+#   grafana       -> dashboards, published on port 3020
+#
+# Only Grafana is published on the host. Everything else talks over the
+# private "monitoring" Docker network. Memory limits are sized for an e2-micro.
+name: monitoring
+
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($|/)
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 64m
+    networks: [monitoring]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.54.1
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true # needed to read container statistics from the host
+    cgroup: host # see the host's cgroup v2 tree (all containers)
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service
+      - --disable_metrics=percpu,sched,tcp,udp,disk,diskIO,hugetlb,referenced_memory,cpu_topology,resctrl,process,advtcp,memory_numa,cpuset
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    mem_limit: 160m
+    networks: [monitoring]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3d # keep disk and memory usage small
+      - --storage.tsdb.retention.size=500MB
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on: [node-exporter, cadvisor]
+    mem_limit: 256m
+    networks: [monitoring]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3020:3000" # Grafana is reachable at http://<VM public IP>:3020
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in monitoring/.env}
+      GF_AUTH_ANONYMOUS_ENABLED: "true" # dashboards are viewable without login (read-only)
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/host-metrics.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus]
+    mem_limit: 256m
+    networks: [monitoring]
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  monitoring:
+    name: monitoring
