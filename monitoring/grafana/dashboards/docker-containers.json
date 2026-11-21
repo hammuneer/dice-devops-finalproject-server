@@ -519,7 +519,7 @@
           },
           "instant": true,
           "format": "table",
-          "expr": "sum by (name, image) (container_memory_working_set_bytes{job=\"cadvisor\",name!=\"\"}) and on (name, image) (max by (name, image) (container_last_seen{job=\"cadvisor\",name!=\"\"}) > time() - 60)"
+          "expr": "sum by (name, image) (container_memory_working_set_bytes{job=\"cadvisor\",name!=\"\"}) and on (name, image) (max by (name, image) (container_last_seen{job=\"cadvisor\",name!=\"\"}) > time() - 120)"
         },
         {
           "refId": "B",
@@ -529,7 +529,7 @@
           },
           "instant": true,
           "format": "table",
-          "expr": "100 * sum by (name, image) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\"}[2m])) and on (name, image) (max by (name, image) (container_last_seen{job=\"cadvisor\",name!=\"\"}) > time() - 60)"
+          "expr": "100 * sum by (name, image) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\"}[2m])) and on (name, image) (max by (name, image) (container_last_seen{job=\"cadvisor\",name!=\"\"}) > time() - 120)"
         },
         {
           "refId": "C",
@@ -539,7 +539,7 @@
           },
           "instant": true,
           "format": "table",
-          "expr": "max by (name, image) (time() - container_start_time_seconds{job=\"cadvisor\",name!=\"\"}) and on (name, image) (max by (name, image) (container_last_seen{job=\"cadvisor\",name!=\"\"}) > time() - 60)"
+          "expr": "max by (name, image) (time() - container_start_time_seconds{job=\"cadvisor\",name!=\"\"}) and on (name, image) (max by (name, image) (container_last_seen{job=\"cadvisor\",name!=\"\"}) > time() - 120)"
         }
       ],
       "transformations": [
