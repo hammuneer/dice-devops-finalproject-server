@@ -1,0 +1,20 @@
+services:
+  server:
+    # The CD pipeline rewrites this tag to the commit SHA on every deploy.
+    image: hammuneer/dice-devops-finalproject-server:latest
+    build: .
+    container_name: file-server
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-5000}:5000"
+    environment:
+      SERVER_PORT: "5000"
+      DATA_DIR: /serverdata
+      FILE_SIZE_BYTES: "1024"
+      MAX_FILES: "50"
+    volumes:
+      - servervol:/serverdata
+
+volumes:
+  servervol:
+    name: servervol

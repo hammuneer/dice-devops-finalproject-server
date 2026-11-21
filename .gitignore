@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+!terraform/*.tfvars.example
+*.json.key
+
+# OS
+.DS_Store
