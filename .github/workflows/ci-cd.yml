@@ -1,0 +1,167 @@
+name: CI/CD - server
+
+# CI : build + smoke-test the image on a GitHub-hosted runner, push it to Docker Hub.
+# CD : on the server VM (self-hosted runner) update the image tag in docker-compose.yml,
+#      pull the new image and redeploy. Monitoring config is synced as well.
+# Notify: post the result to Slack.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "terraform/**"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+env:
+  IMAGE: hammuneer/dice-devops-finalproject-server
+  DEPLOY_DIR: /opt/dice-server
+
+jobs:
+  build:
+    name: Build, test and push image
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Check Python syntax
+        run: python3 -m py_compile app/*.py
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image for testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test - receive a file and verify its checksum
+        run: |
+          docker run -d --name server-test -p 5000:5000 "$IMAGE:test"
+          for i in $(seq 1 20); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' server-test)" = healthy ] && break
+            sleep 2
+          done
+          python3 - <<'EOF'
+          import hashlib, json, socket
+          with socket.create_connection(("127.0.0.1", 5000), timeout=10) as s, s.makefile("rb") as f:
+              header = json.loads(f.readline())
+              data = f.read(header["size"])
+          assert len(data) == 1024, f"expected 1024 bytes, got {len(data)}"
+          assert hashlib.sha256(data).hexdigest() == header["checksum"], "checksum mismatch"
+          print("Smoke test passed:", header)
+          EOF
+          docker logs server-test
+          docker rm -f server-test
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: hammuneer
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push image (commit tag + latest)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+
+  deploy:
+    name: Deploy to server VM
+    needs: build
+    runs-on: [self-hosted, server-vm]
+    env:
+      TAG: ${{ needs.build.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update image tag in docker-compose.yml
+        run: |
+          mkdir -p "$DEPLOY_DIR"
+          [ -f "$DEPLOY_DIR/docker-compose.yml" ] && cp "$DEPLOY_DIR/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml.prev"
+          sed -E "s#^([[:space:]]*image:[[:space:]]*${IMAGE}):.*#\1:${TAG}#" docker-compose.yml > "$DEPLOY_DIR/docker-compose.yml"
+          echo "Deploying:"; grep -n "image:" "$DEPLOY_DIR/docker-compose.yml"
+
+      - name: Pull new image and deploy
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose pull
+          docker compose up -d --no-build --remove-orphans
+
+      - name: Verify deployment (container healthy)
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' file-server 2>/dev/null || echo missing)
+            echo "health: $status"
+            [ "$status" = healthy ] && docker compose ps && exit 0
+            sleep 3
+          done
+          docker compose logs --tail 50
+          exit 1
+
+      - name: Roll back on failure
+        if: failure()
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          if [ -f docker-compose.yml.prev ]; then
+            mv docker-compose.yml.prev docker-compose.yml
+            docker compose up -d --no-build
+            echo "Rolled back to: $(grep image: docker-compose.yml)"
+          fi
+
+      - name: Sync monitoring stack
+        run: |
+          cp -R monitoring/. /opt/monitoring/
+          cd /opt/monitoring && docker compose up -d --remove-orphans
+
+      - name: Remove old images
+        run: docker image prune -af
+
+  notify:
+    name: Slack notification
+    needs: [build, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post result to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          BUILD: ${{ needs.build.result }}
+          DEPLOY: ${{ needs.deploy.result }}
+          TAG: ${{ needs.build.outputs.tag }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL secret not set - skipping notification"; exit 0
+          fi
+          if [ "$BUILD" = success ] && [ "$DEPLOY" = success ]; then
+            icon=":white_check_mark:"; text="Deployment succeeded"
+          else
+            icon=":x:"; text="Deployment FAILED"
+          fi
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          msg="$icon *$text* - \`${GITHUB_REPOSITORY#*/}\`
+          *Image:* \`$IMAGE:${TAG:-n/a}\`
+          *Target:* server-vm   *Build:* $BUILD   *Deploy:* $DEPLOY
+          *Commit:* ${COMMIT_MSG%%$'\n'*} (by $GITHUB_ACTOR)
+          <$run_url|View pipeline run>"
+          jq -n --arg text "$(echo "$msg" | sed 's/^ *//')" '{text: $text}' \
+            | curl -fsS -X POST -H 'Content-Type: application/json' --data @- "$SLACK_WEBHOOK_URL"
