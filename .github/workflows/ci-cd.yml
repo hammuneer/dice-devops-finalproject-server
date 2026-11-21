@@ -147,7 +147,7 @@ jobs:
           BUILD: ${{ needs.build.result }}
           DEPLOY: ${{ needs.deploy.result }}
           TAG: ${{ needs.build.outputs.tag }}
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          COMMIT_MSG: ${{ github.event.head_commit.message || format('Manual run on {0}', github.ref_name) }}
         run: |
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
             echo "SLACK_WEBHOOK_URL secret not set - skipping notification"; exit 0
