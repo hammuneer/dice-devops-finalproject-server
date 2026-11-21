@@ -25,6 +25,12 @@ usermod -aG docker "$RUNNER_USER"
 
 # Directories the pipeline writes to.
 mkdir -p "$DEPLOY_DIR" /opt/monitoring
+
+# Grafana admin password for the monitoring stack (generated once, kept on the VM only).
+if [ ! -f /opt/monitoring/.env ]; then
+  printf "GRAFANA_ADMIN_USER=admin\nGRAFANA_ADMIN_PASSWORD=%s\n" "$(openssl rand -base64 18 | tr -d '/+=')" > /opt/monitoring/.env
+  chmod 600 /opt/monitoring/.env
+fi
 chown -R "$RUNNER_USER:$RUNNER_USER" "$DEPLOY_DIR" /opt/monitoring
 
 if [ -f "$RUNNER_HOME/.runner" ]; then
