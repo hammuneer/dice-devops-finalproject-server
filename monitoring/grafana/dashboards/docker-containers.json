@@ -110,7 +110,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\"}[2m]))",
+          "expr": "100 * sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\"}[5m]))",
           "instant": true
         }
       ],
@@ -221,7 +221,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(container_network_receive_bytes_total{job=\"cadvisor\",name!=\"\"}[2m]))",
+          "expr": "sum(rate(container_network_receive_bytes_total{job=\"cadvisor\",name!=\"\"}[5m]))",
           "instant": true
         }
       ],
@@ -289,7 +289,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum by (name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\"}[2m]))",
+          "expr": "100 * sum by (name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\"}[5m]))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -403,7 +403,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name) (rate(container_network_receive_bytes_total{job=\"cadvisor\",name!=\"\"}[2m]))",
+          "expr": "sum by (name) (rate(container_network_receive_bytes_total{job=\"cadvisor\",name!=\"\"}[5m]))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -460,7 +460,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",name!=\"\"}[2m]))",
+          "expr": "sum by (name) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",name!=\"\"}[5m]))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -529,7 +529,7 @@
           },
           "instant": true,
           "format": "table",
-          "expr": "100 * sum by (name, image) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\"}[2m])) and on (name, image) (max by (name, image) (container_last_seen{job=\"cadvisor\",name!=\"\"}) > time() - 120)"
+          "expr": "100 * sum by (name, image) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\"}[5m])) and on (name, image) (max by (name, image) (container_last_seen{job=\"cadvisor\",name!=\"\"}) > time() - 120)"
         },
         {
           "refId": "C",
